@@ -1,0 +1,4 @@
+hello_world/*
+*.log
+**/*.exe
+.vscode/*
