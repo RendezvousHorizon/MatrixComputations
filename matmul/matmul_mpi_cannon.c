@@ -104,6 +104,125 @@ void distribute_AB(int isA, const double *src, double **dest, const int m, const
     }
 }
 
+
+void distribute_AB_scatterv(int isA, const double *src, double **dest, const int m, const int n, const int b, const coord_t coords, const int lrank, const int p, const int q, MPI_Comm comm_cart)
+{
+    *dest = (double *)malloc(b * b * sizeof(double));
+    
+    if (lrank == 0)
+    {
+        MPI_Datatype tmp_type, block_type;
+        MPI_Type_vector(b, b, n, MPI_DOUBLE, &tmp_type);
+        MPI_Type_create_resized(tmp_type, 0, sizeof(double), &block_type);
+        MPI_Type_commit(&block_type);
+        int *sendcounts = (int *)malloc(p * q * sizeof(int));
+        int *displs = (int *)malloc(p * q * sizeof(int));
+
+        for (int i = 0; i < p * q; i++)
+            sendcounts[i] = 1;
+        for (int i = 0; i < p * q; i++)
+        {
+            coord_t target_coords;
+            MPI_Cart_coords(comm_cart, i, 2, target_coords);
+            int ii = target_coords[0], jj = target_coords[1];
+            if (isA)
+                jj = (jj + ii) % q;
+            else 
+                ii = (ii + jj) % p;
+            displs[i] = b * ii * n + b * jj;
+        }
+
+        MPI_Scatterv(src, sendcounts, displs, block_type, *dest, b * b, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        
+        free(sendcounts);
+        free(displs);
+    }
+    else
+    {
+        MPI_Scatterv(NULL, NULL, NULL, NULL, *dest, b * b, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    }
+}
+
+void collect_C(const double *C, double *C0, int m, int n, int b, coord_t coords, int lrank, int p, int q, MPI_Comm comm_cart)
+{
+    if (lrank == 0)
+    {
+        double **recv_buffer = (double **)malloc(p * q * sizeof(double *));
+        MPI_Request *request = (MPI_Request *)malloc(p * q * sizeof(MPI_Request));
+        int *flag = (int *)calloc(p * q, sizeof(int));
+
+        for (int send_rank = 1; send_rank < p * q; send_rank++)
+        {
+            recv_buffer[send_rank] = (double *)malloc(b * b * sizeof(double));
+            MPI_Irecv(recv_buffer[send_rank], b * b, MPI_DOUBLE, send_rank, 0, MPI_COMM_WORLD, &request[send_rank]);
+        }
+
+        // copy rank0 C to C0
+        copy_recv_buffer(C, C0, m, n, b, coords[0], coords[1]);
+
+        // polling for other senders
+        int cnt = 0;
+        while (cnt < p * q - 1)
+        {
+            for (int send_rank = 1; send_rank < p * q; send_rank++)
+            {
+                if (flag[send_rank] == 0)
+                {
+                    MPI_Test(&request[send_rank], &flag[send_rank], MPI_STATUS_IGNORE);
+                    if (flag[send_rank])
+                    {
+                        cnt++;
+                        coord_t send_coords;
+                        MPI_Cart_coords(comm_cart, send_rank, 2, send_coords);
+                        copy_recv_buffer(recv_buffer[send_rank], C0, m, n, b, send_coords[0], send_coords[1]);
+                    }
+                }
+
+            }
+        }
+
+        for (int i = 1; i < p * q; i++)
+            free(recv_buffer[i]);
+        free(recv_buffer);
+        free(request);
+        free(flag);
+        
+    }
+    else
+        MPI_Send(C, b * b, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+}
+
+void collect_C_gatherv(const double *C, double *C0, int m, int n, int b, coord_t coords, int lrank, int p, int q, MPI_Comm comm_cart)
+{
+    MPI_Datatype tmp_type, block_type;
+    MPI_Type_vector(b, b, n, MPI_DOUBLE, &tmp_type);
+    MPI_Type_create_resized(tmp_type, 0, sizeof(double), &block_type);
+    MPI_Type_commit(&block_type);
+
+    int *recvcounts, *displs;
+    if (lrank == 0)
+    {
+        recvcounts = malloc(p * q * sizeof(int));
+        displs = malloc(p * q * sizeof(int));
+        for (int i = 0; i < p * q; i++)
+            recvcounts[i] = 1;
+        for (int i = 0; i < p * q; i++)
+        {
+            coord_t target_coords;
+            MPI_Cart_coords(comm_cart, i, 2, target_coords);
+            int ii = target_coords[0], jj = target_coords[1];
+            // there's no addtional displacement in C
+            displs[i] = b * ii * n + b * jj;
+        }    
+    }
+    MPI_Gatherv(C, b * b, MPI_DOUBLE, C0, recvcounts, displs, block_type, 0, MPI_COMM_WORLD);
+    if (lrank == 0)
+    {
+        free(recvcounts);
+        free(displs);
+    }
+}
+
 int main(int argc, char **argv)
 {
     srand(time(NULL));
@@ -177,8 +296,12 @@ int main(int argc, char **argv)
     }
 
     int b = m / p;
-    distribute_AB(1, A0, &A, m, k, b, coords, lrank, p, q, comm_cart);
-    distribute_AB(0, B0, &B, k, n, b, coords, lrank, p, q, comm_cart);
+    // first version: using send p2p commucation
+    // distribute_AB(1, A0, &A, m, k, b, coords, lrank, p, q, comm_cart);
+    // distribute_AB(0, B0, &B, k, n, b, coords, lrank, p, q, comm_cart);
+    // second version: using scatterv
+    distribute_AB_scatterv(1, A0, &A, m, k, b, coords, lrank, p, q, comm_cart);
+    distribute_AB_scatterv(0, B0, &B, k, n, b, coords, lrank, p, q, comm_cart);
     C = (double *)calloc(b * b, sizeof(double));
 
     struct timeval begin, end;
@@ -199,51 +322,10 @@ int main(int argc, char **argv)
     matmul_ijk(A, B, C, b, b, b);
     
     // collect C to C0
-    if (lrank == 0)
-    {
-        double **recv_buffer = (double **)malloc(p * q * sizeof(double *));
-        MPI_Request *request = (MPI_Request *)malloc(p * q * sizeof(MPI_Request));
-        int *flag = (int *)calloc(p * q, sizeof(int));
-
-        for (int send_rank = 1; send_rank < p * q; send_rank++)
-        {
-            recv_buffer[send_rank] = (double *)malloc(b * b * sizeof(double));
-            MPI_Irecv(recv_buffer[send_rank], b * b, MPI_DOUBLE, send_rank, 0, MPI_COMM_WORLD, &request[send_rank]);
-        }
-
-        // copy rank0 C to C0
-        copy_recv_buffer(C, C0, m, n, b, coords[0], coords[1]);
-
-        // polling for other senders
-        int cnt = 0;
-        while (cnt < p * q - 1)
-        {
-            for (int send_rank = 1; send_rank < p * q; send_rank++)
-            {
-                if (flag[send_rank] == 0)
-                {
-                    MPI_Test(&request[send_rank], &flag[send_rank], MPI_STATUS_IGNORE);
-                    if (flag[send_rank])
-                    {
-                        cnt++;
-                        coord_t send_coords;
-                        MPI_Cart_coords(comm_cart, send_rank, 2, send_coords);
-                        copy_recv_buffer(recv_buffer[send_rank], C0, m, n, b, send_coords[0], send_coords[1]);
-                    }
-                }
-
-            }
-        }
-
-        for (int i = 1; i < p * q; i++)
-            free(recv_buffer[i]);
-        free(recv_buffer);
-        free(request);
-        free(flag);
-        
-    }
-    else
-        MPI_Send(C, b * b, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+    // first version: using point2point communication
+    // collect_C(C, C0, m, n, b, coords, lrank, p, q, comm_cart);
+    // second version: using gatherv
+    collect_C_gatherv(C, C0, m, n, b, coords, lrank, p, q, comm_cart);
 
     // end kernel
     MPI_Barrier(MPI_COMM_WORLD);
