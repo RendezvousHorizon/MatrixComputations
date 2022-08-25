@@ -32,7 +32,13 @@ class Solver:
     @staticmethod
     def solve(A: np.matrix, b: np.ndarray, lu_method: str, block_size: int) -> np.ndarray:
         time = timeit.default_timer()
-        LU, L, U = LUFactorator.lu_factorization(A, lu_method, block_size)
+        fact_result = LUFactorator.lu_factorization(A, lu_method, block_size)
+        if len(fact_result) == 3:
+            LU, L, U = fact_result
+        else:
+            LU, L, U, P = fact_result
+            b = np.matmul(LUFactorator.build_pivot_matrix(P), b)
+                        
         lu_time = timeit.default_timer() - time
         m, r, n = *L.shape, U.shape[1]
         
@@ -63,6 +69,8 @@ class LUFactorator:
             return LUFactorator.lu_factorization_gaxpy(A, inplace)
         if lu_method == 'blocked':
             return LUFactorator.lu_factorization_blocked(A, block_size, inplace)
+        if lu_method == 'pivoted':
+            return LUFactorator.lu_factorization_pivoted(A, inplace)
         raise ValueError(lu_method)
 
     @staticmethod
@@ -80,7 +88,7 @@ class LUFactorator:
         return L, U
 
     @staticmethod
-    def lu_factorization_outer_product(A: np.ndarray, inplace=False) -> np.ndarray:
+    def lu_factorization_outer_product(A: np.ndarray, inplace=False):
         # FLOPs 2 / 3 * n^3
         m, n = A.shape
         r = min(m, n)
@@ -97,7 +105,7 @@ class LUFactorator:
         return A, L, U
 
     @staticmethod
-    def lu_factorization_gaxpy(A: np.matrix, inplace=False) -> np.ndarray:
+    def lu_factorization_gaxpy(A: np.matrix, inplace=False):
         old_A = copy.deepcopy(A)
         if not inplace:
             A = copy.deepcopy(A) 
@@ -124,7 +132,7 @@ class LUFactorator:
         pass 
 
     @staticmethod
-    def lu_factorization_blocked(A: np.matrix, block_size: int, inplace=False) -> np.ndarray:
+    def lu_factorization_blocked(A: np.matrix, block_size: int, inplace=False):
         assert A.shape[0] == A.shape[1]
         R = block_size
         submatrix = lambda A, R, i, j: A[i * R:i * R + R, j * R:j * R + R]
@@ -159,12 +167,66 @@ class LUFactorator:
 
         return A, L, U
 
+    @staticmethod
+    def build_pivot_matrix(P):
+        n = P.shape[0]
+        rv = np.zeros([n, n])
+        for i, v in enumerate(P):
+            rv[i, v] = 1
+        return rv 
+
+    @staticmethod
+    def lu_factorization_pivoted(A: np.matrix, inplace=False):
+        old_A = copy.deepcopy(A)
+        if not inplace:
+            A = copy.deepcopy(A)
+        m, n = A.shape
+        r = min(m, n)
+        P = np.arange(m)
+        for k in range(r):
+            # pivoting
+            pivot = np.argmax(np.abs(A[k:, k])) + k
+            if pivot != k:
+                tmp = P[k]
+                P[k] = P[pivot]
+                P[pivot] = tmp
+                tmp = A[k, :].copy()
+                A[k, :] = A[pivot, :]
+                A[pivot, :] = tmp[:]
+            # calculation
+            A[k + 1:, k] = A[k + 1:, k] / A[k, k]
+            A[k + 1:, k + 1:] -= np.matmul(A[k + 1:, k: k + 1], A[k: k + 1, k + 1:])
+        L, U = LUFactorator.separate_lu(A)
+        P_matrix = LUFactorator.build_pivot_matrix(P)
+        Solver.assert_a_eq_b(np.matmul(P_matrix, old_A), np.matmul(L, U))
+        return A, L, U, P
+
+    # LU factorization with partial pivoting
+    # calculate PA=LU
+    # return A, P^{-1}L, U so that A=P^{-1}LU is compatible with other methods without pivoting
+    @staticmethod
+    def lu_factorization_blocked_pivoted(A: np.matrix, block_size: int, inplace=False):
+        assert A.shape[0] == A.shape[1]
+        submatrix = lambda A, R, i, j: A[i * R:i * R + R, j * R:j * R + R]
+
+        R = block_size
+        N = A.shape[0]
+        M = N // R
+        
+        old_A = copy.deepcopy(A)
+        if not inplace:
+            A = copy.deepcopy(A) 
+            
+        P = np.array(list(range(N)))
+
+
+
 
 def main():
     parser = ArgumentParser()
     parser.add_argument('--n', type=int, default=1000)
     parser.add_argument('--r', type=int, default=10)
-    parser.add_argument('--lu_method', choices=['outer_product', 'gaxpy', 'blocked'], type=str, default='outer_product')
+    parser.add_argument('--lu_method', choices=['outer_product', 'gaxpy', 'blocked', 'pivoted'], type=str, default='outer_product')
     args = parser.parse_args()
 
     # initial A, b
