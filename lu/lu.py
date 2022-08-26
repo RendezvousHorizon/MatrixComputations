@@ -21,11 +21,12 @@ class Solver:
     @staticmethod
     def solve_lx_eq_b(L: np.matrix, b: np.ndarray, inplace=False) -> np.ndarray:
         # flops = 2 * [(n - 1) + ... + 1] = n^2 - n
+        # b can be a 1d array or a matrix
         old_b = copy.deepcopy(b)
         if not inplace:
             b = copy.deepcopy(b)
         for i in range(min(L.shape)):
-            b[i + 1:] -= L[i + 1:, i] * b[i]
+            b[i + 1:] -= np.matmul(L[i + 1:, i: i + 1], b[i:i + 1])
         Solver.assert_ax_eq_b(L, b, old_b)
         return b
 
@@ -37,8 +38,8 @@ class Solver:
             LU, L, U = fact_result
         else:
             LU, L, U, P = fact_result
-            b = np.matmul(LUFactorator.build_pivot_matrix(P), b)
-                        
+            b = LUFactorator.permute(P, b)
+
         lu_time = timeit.default_timer() - time
         m, r, n = *L.shape, U.shape[1]
         
@@ -71,6 +72,8 @@ class LUFactorator:
             return LUFactorator.lu_factorization_blocked(A, block_size, inplace)
         if lu_method == 'pivoted':
             return LUFactorator.lu_factorization_pivoted(A, inplace)
+        if lu_method == 'blocked_pivoted':
+            return LUFactorator.lu_factorization_blocked_pivoted(A, block_size, inplace)
         raise ValueError(lu_method)
 
     @staticmethod
@@ -176,6 +179,12 @@ class LUFactorator:
         return rv 
 
     @staticmethod
+    def permute(P, M):
+        if len(P.shape) == 2:
+            return np.matmul(P, M)
+        else:
+            return M[P]
+    @staticmethod
     def lu_factorization_pivoted(A: np.matrix, inplace=False):
         old_A = copy.deepcopy(A)
         if not inplace:
@@ -197,17 +206,13 @@ class LUFactorator:
             A[k + 1:, k] = A[k + 1:, k] / A[k, k]
             A[k + 1:, k + 1:] -= np.matmul(A[k + 1:, k: k + 1], A[k: k + 1, k + 1:])
         L, U = LUFactorator.separate_lu(A)
-        P_matrix = LUFactorator.build_pivot_matrix(P)
-        Solver.assert_a_eq_b(np.matmul(P_matrix, old_A), np.matmul(L, U))
+        Solver.assert_a_eq_b(LUFactorator.permute(P, old_A), np.matmul(L, U))
         return A, L, U, P
 
-    # LU factorization with partial pivoting
-    # calculate PA=LU
-    # return A, P^{-1}L, U so that A=P^{-1}LU is compatible with other methods without pivoting
+    # LU factorization with partial pivoting: PA = LU
     @staticmethod
     def lu_factorization_blocked_pivoted(A: np.matrix, block_size: int, inplace=False):
         assert A.shape[0] == A.shape[1]
-        submatrix = lambda A, R, i, j: A[i * R:i * R + R, j * R:j * R + R]
 
         R = block_size
         N = A.shape[0]
@@ -217,16 +222,44 @@ class LUFactorator:
         if not inplace:
             A = copy.deepcopy(A) 
             
-        P = np.array(list(range(N)))
+        # 1) panel LU
+        _, L, U11, P = LUFactorator.lu_factorization_pivoted(A[:, :R], inplace=True)
+        L11 = L[:R]
+        L21 = L[R:]
 
+        # stop 
+        if N <= R:
+            return A, L, U11, P
 
+        # 2) permute right of panel: [A21'T,A22'T]T = P[A21T,A22T]T
+        A[:, R:] = LUFactorator.permute(P, A[:, R:])
+
+        # 3) solve L11U12 = A12'
+        A12 = A[:R, R:]
+        Solver.solve_lx_eq_b(L11, A12, inplace=True)
+
+        # 4) Update A22' = A22' - L21U12 
+        A22 = A[R:, R:]
+        U12 = A12
+        A22 -= np.matmul(L21, U12)
+
+        # 5) Recursion
+        _, _, _, P2 = LUFactorator.lu_factorization_blocked_pivoted(A22, R, inplace=True)
+
+        # merge result
+        L21 = A[R:, :R]
+        L21[:, :] = LUFactorator.permute(P2, L21)
+        L, U = LUFactorator.separate_lu(A)
+        P[R:] = LUFactorator.permute(P2, P[R:])
+
+        return A, L, U, P
 
 
 def main():
     parser = ArgumentParser()
     parser.add_argument('--n', type=int, default=1000)
     parser.add_argument('--r', type=int, default=10)
-    parser.add_argument('--lu_method', choices=['outer_product', 'gaxpy', 'blocked', 'pivoted'], type=str, default='outer_product')
+    parser.add_argument('--lu_method', choices=['outer_product', 'gaxpy', 'blocked', 'pivoted', 'blocked_pivoted'], type=str, default='outer_product')
     args = parser.parse_args()
 
     # initial A, b
