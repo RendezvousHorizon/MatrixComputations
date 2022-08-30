@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "local_domain.h"
+#include "lu.h"
+#include "pivot.h"
 
 double drand(double low, double high)
 {
@@ -50,5 +52,13 @@ int main(int argc, char **argv)
     init_grid(&grid, MPI_COMM_WORLD, P, Q);
     init_local_domain(globalA, N, B, &grid, &ldomain);
 
+    // initial pivot
+    pivot_final_t pivot;
+    init_pivot(&pivot, N);
+
+    // LU factorization
+    luf_pivoted(&ldomain, &pivot);
+    print_global_matrix(&ldomain, "Final");
     MPI_Finalize();
+    return 0;
 }

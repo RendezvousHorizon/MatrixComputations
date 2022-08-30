@@ -15,8 +15,8 @@ typedef struct local_domain_s
     int NUM_BLOCKS; // number of blocks per rank
 } local_domain_t;
 
-#define PANEL_L_BCOL(ldomain, bk) (int(bk / ldomain->grid->Q))
-#define PANEL_L_BROW_START(ldomain, bk) (int(bk / ldomain->grid->P) + int(bk % ldomain->grid->P > ldomain->grid->myrow))
+#define PANEL_L_BCOL(ldomain, bk) ((int)(bk / ldomain->grid->Q))
+#define PANEL_L_BROW_START(ldomain, bk) ((int)(bk / ldomain->grid->P) + (int)(bk % ldomain->grid->P > ldomain->grid->myrow))
 
 // get global block idx or element idx from ldomain idx in rank (p, q)
 #define G_BROW_P(ldomain, lbrow, p) (lbrow * ldomain->grid->P + p)
@@ -30,10 +30,23 @@ typedef struct local_domain_s
 #define G_ROW(ldomain, lbrow, i) G_ROW_P(ldomain, lbrow, ldomain->grid->myrow, i)
 #define G_COL(ldomain, lbcol, j) G_COL_Q(ldomain, lbcol, ldomain->grid->mycol, j)
 
+// global idx to local idx
+#define L_BROW(ldomain, gi) ((int)(gi / ldomain->B / ldomain->grid->P))
+#define L_BCOL(ldomain, gj) ((int)(gj / ldomain->B / ldomain->grid->Q))
+
+// get rank from global idx
+#define P_FROM_G_ROW(ldomain, gi) (((int)(gi / ldomain->B)) % ldomain->grid->P)
+#define Q_FROM_G_COL(ldomain, gj) (((int)(gj / ldomain->B)) % ldomain->grid->Q)
+#define RANK_FROM_G_ROW_COL(ldomain, gi, gj) RANK_FROM_PQ(P_FROM_G_ROW(ldomain, gi), Q_FROM_G_COL(ldomain->gj))
+
 #define BLK_ELE(data, B, i, j) (data[i * B + j])
 #define BLK(ldomain, lbrow, lbcol) (ldomain->data + (lbrow * ldomain->NBQ + lbcol) * B * B)
 
+#define MY_RANK (ldomain->grid->lrank)
+#define MY_ROW (ldomain->grid->myrow)
+#define MY_COL (ldomain->grid->mycol)
 
 void init_local_domain(const double *globalA, int N, int B, const grid_t *grid, local_domain_t *ldomain);
-
+void gather_local_domain(double *globalA, local_domain_t *ldomain);
+void print_global_matrix(local_domain_t *ldomain, char *msg);
 #endif

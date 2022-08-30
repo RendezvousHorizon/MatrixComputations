@@ -18,7 +18,6 @@ typedef struct grid_s
 
 } grid_t;
 
-#define COL_ROOT_RANK(grid) (grid->mycol % grid->Q)
 #define RANK_FROM_PQ(grid, p, q) (p * grid->Q + q)
 
 void init_grid(grid_t *grid, MPI_Comm comm, int P, int Q);
