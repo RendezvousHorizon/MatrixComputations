@@ -2,9 +2,6 @@
 
 void init_grid(grid_t *grid, MPI_Comm comm, int P, int Q)
 {
-    #ifdef DEBUG
-    printf("Rank %d: initialing grid.\n", grid->lrank);
-    #endif
     grid->all_comm = comm;
     grid->P = P;
     grid->Q = Q;

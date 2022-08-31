@@ -14,7 +14,7 @@ static void print_ldomain(const local_domain_t *ldomain)
             {
                 printf("\tBlock %d: ", bi);
                 for (int i = 0; i < B * B; i++)
-                    printf("%3.0f ", ldomain->data[bi * B * B + i]);
+                    printf("%6.2f ", ldomain->data[bi * B * B + i]);
                 printf("\n");
             }
             fflush(stdout);
@@ -77,8 +77,7 @@ void init_local_domain(const double *globalA, int N, int B, const grid_t *grid, 
                             int gi = G_ROW_P(ldomain, lbi, p, 0);
                             int gj = G_COL_Q(ldomain, lbj, q, 0);
                             #ifdef DEBUG
-                            printf("Rank 0: sending to rank %d, block(%d, %d), gij=(%d, %d), first value: %3.0f\n", t_rank, lbi, lbj, gi, gj, globalA[gi * N + gj]);
-
+                            printf("Rank 0: sending to rank %d, block(%d, %d), gij=(%d, %d), first value: %6.2f\n", t_rank, lbi, lbj, gi, gj, globalA[gi * N + gj]);
                             fflush(stdout);
                             #endif
                             MPI_Send(globalA + gi * N + gj, 1, block_type, t_rank, 0, MPI_COMM_WORLD);
@@ -112,7 +111,7 @@ void init_local_domain(const double *globalA, int N, int B, const grid_t *grid, 
         for (int i = 0; i < N; i++)
         {
             for (int j = 0; j < N; j++)
-                printf("%3.0f ", globalA[i * N + j]);
+                printf("%6.2f ", globalA[i * N + j]);
             printf("\n");
         }
     }
@@ -181,6 +180,16 @@ void gather_local_domain(double *globalA, local_domain_t *ldomain)
     }
 }
 
+void print_matrix(double *A, int n)
+{
+    for (int i = 0; i < n; i++)
+    {
+        for (int j = 0; j < n; j++)
+            printf("%6.3f ", A[i * n + j]);
+        printf("\n");
+    }
+}
+
 void print_global_matrix(local_domain_t *ldomain, char *msg)
 {
     int N = ldomain->N;
@@ -194,12 +203,7 @@ void print_global_matrix(local_domain_t *ldomain, char *msg)
     {
         printf("==============\n");
         printf("Global Matrix (%s)\n", msg);
-        for (int i = 0; i < N; i++)
-        {
-            for (int j = 0; j < N; j++)
-                printf("%6.2f ", A[i * N + j]);
-            printf("\n");
-        }
+        print_matrix(A, N);
         printf("==============\n");
         free(A);
     }

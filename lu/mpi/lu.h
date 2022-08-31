@@ -2,7 +2,6 @@
 #define LU_H
 
 #include <mpi.h>
-#include <float.h>
 #include <string.h>
 #include "local_domain.h"
 #include "pivot.h"
