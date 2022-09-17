@@ -4,15 +4,16 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <cstdio>
 #include "cl.hpp"
 
-#define ABS(a) (a > 0 ? a : -a)
+#define ABS(a) ((a) > 0 ? (a) : -(a))
 
 class CLInterface{
 public:
     CLInterface(int m, int n, int k);
     ~CLInterface();
-    void init(const char *kernel_file_path);
+    void init();
     void run_once();
     void validate_impl();
 private: 

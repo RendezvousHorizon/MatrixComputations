@@ -12,7 +12,7 @@ CLInterface::~CLInterface() {
 
 static void rand_init(float *a, int n) {
     for (int i = 0; i < n; i++)
-        a[i] = static_cast<float>(rand() / RAND_MAX - 0.5);
+        a[i] = static_cast<float>(rand() * 1.0 / RAND_MAX - 0.5);
 }
 
 
@@ -38,7 +38,7 @@ static cl::Device get_cl_device(){
     return devices.front();
 }
 
-void CLInterface::init(const char *kernel_file_path) {
+void CLInterface::init() {
     // init _a, _b, _c
     _a = new float[_m * _k];
     _b = new float[_k * _n];
@@ -48,7 +48,17 @@ void CLInterface::init(const char *kernel_file_path) {
 
     // init cl
     _device = get_cl_device();
-    std::ifstream kernel_file(kernel_file_path);
+    #if defined(CL_FP32)
+    std::ifstream kernel_file("./src/naive_cl_impl.cl");
+    #elif defined(CL_ROW_FP32)
+    std::ifstream kernel_file("./src/cl_row_impl.cl");
+    #elif defined(CL_LMEM_FP32)
+    std::ifstream kernel_file("./src/cl_lmem_impl.cl");
+    #else 
+        std::cout << "Error: must define corresponding CL macro.\n";
+        exit(-1);
+    #endif
+
     std::string src(std::istreambuf_iterator<char>(kernel_file), (std::istreambuf_iterator<char>()));
 
     cl::Program::Sources sources(1, std::make_pair(src.c_str(), src.length() + 1));
@@ -67,7 +77,7 @@ void CLInterface::naive_matmul(float *a, float *b, float *c) {
     for (int i = 0; i < _m; i++)
         for (int j = 0; j < _n; j++)
             for (int p = 0; p < _k; p++)
-                _c[i * _n + j] += _a[i + p * _m] * _b[p * _n + j];
+                c[i * _n + j] += a[i + p * _m] * b[p * _n + j];
 }
 
 void CLInterface::run_once() {
@@ -83,9 +93,23 @@ void CLInterface::run_once() {
     kernel.setArg(4, sizeof(int), &_n);
     kernel.setArg(5, sizeof(int), &_k);
 
+    #ifdef CL_LMEM_FP32
+    kernel.setArg(6, cl::Local(_k * sizeof(float)));
+    #endif
+
     cl::CommandQueue queue(_context, _device, CL_QUEUE_PROFILING_ENABLE);
-    // TODO: Thread, grid layout may change.
-    queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(_m, _n));
+
+    #if defined(CL_FP32)
+        queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(_m, _n));
+    #elif defined(CL_ROW_FP32)
+        queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(_m));
+    #elif defined(CL_LMEM_FP32)
+        queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(_m), cl::NDRange(_m / 32));
+    #else 
+        std::cout << "Error: must declare corresponding CL macro\n";
+        exit(-1);
+    #endif
+
     queue.enqueueReadBuffer(cBuf, CL_TRUE, 0, _m * _n * sizeof(float), _c);
     queue.finish();
 }
@@ -94,13 +118,14 @@ void CLInterface::validate_impl() {
     float *d = new float[_m * _n];
     memset(d, 0, _m * _n * sizeof(float));
     memset(_c, 0, _m * _n * sizeof(float));
-    naive_matmul(_a, _b, _c);
+    naive_matmul(_a, _b, d);
     run_once();
 
     for (int i = 0; i < _m; i++)
         for (int j = 0; j < _n; j++)
-            if (ABS(_c[i * _n + j] - d[i * _n + j]) > 1e-5) {
+            if (ABS(_c[i * _n + j] - d[i * _n + j]) > 1e-4) {
                 std::cout << "Validation failed. Exit.\n";
+                printf("(i,j)=(%d,%d), (c,d)=(%.2f, %.2f).\n", i, j, _c[i * _n + j], d[i * _n + j]);
                 exit(-1);
             }
 

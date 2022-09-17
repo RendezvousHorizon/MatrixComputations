@@ -21,4 +21,6 @@ Results:
 | Block(kij)(-O2) | FP32      | 0.15s    | 13951  |
 | Neon8x8         | FP32      | 0.59s    | 3622   |
 | Neon8x8(-O2)    | FP32      | 0.03s    | 72387  |
-| CL(Naive)       | FP32      | 0.01s    | 209046 |
+| CL(Naive)       | FP32      | 0.01s    | 195200 |
+| CL(ROW)         | FP32      | 0.27s    | 8107   |
+| CL(Row+Lmem)    | FP32      | 0.29s    | 7348   |

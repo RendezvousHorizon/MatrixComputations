@@ -32,7 +32,7 @@ void Interface<T, Impl>::naive_matmul(T* a, T *b, T *c) {
     for (int i = 0; i < _m; i++)
         for (int j = 0; j < _n; j++)
             for (int p = 0; p < _k; p++)
-                _c[i * _n + j] += _a[i + p * _m] * _b[p * _n + j];
+                c[i * _n + j] += a[i + p * _m] * b[p * _n + j];
 }
 
 template <typename T, typename Impl>

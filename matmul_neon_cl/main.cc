@@ -5,7 +5,7 @@
 #include <ctime>
 #include <cstdlib>
 
-#if defined(CL_FP32)
+#ifdef USE_CL
     #include "cl_interface.h"
 #else
     #include "interface.h"
@@ -19,7 +19,7 @@ int K = 1024;
 const double MAX_SECONDS = 10;
 int REPEAT = 100;
 
-#ifndef CL_FP32
+#ifndef USE_CL
 template <typename T, typename Impl>
 int get_repeat(Interface<T, Impl> &interface) {
     auto start = std::chrono::high_resolution_clock::now();
@@ -33,26 +33,27 @@ int get_repeat(Interface<T, Impl> &interface) {
 int main(int argc, char **argv)
 {
     srand(time(NULL));
+
+    // Get interface
     #if defined(NEON_FP32)
         Interface<float, NeonFP32Impl> interface(M, N, K);
     #elif defined(BLOCK_FP32)
         Interface<float, BlockFP32Impl> interface(M, N, K);
-    #elif defined(CL_FP32)
+    #elif defined(USE_CL)
         CLInterface interface(M, N, K);
     #else
         Interface<float, NaiveFP32Impl> interface(M, N, K);
     #endif
     
-    #if defined(CL_FP32)
-        interface.init("./src/naive_cl_impl.cl");
-    #else
-        interface.init();
-    #endif
+    // Initial interface
+    interface.init();
 
     interface.validate_impl();
-    #ifndef CL_FP32
+
+    #ifndef USE_CL
         REPEAT = get_repeat(interface);
     #endif
+
     printf("Num runs=%d\n", REPEAT);
     auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < REPEAT; i++)

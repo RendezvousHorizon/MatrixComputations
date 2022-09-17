@@ -4,7 +4,7 @@
 #include <iostream>
 #include <string>
 #include <cstdlib>
-#define ABS(a) (a > 0 ? a : -a)
+#define ABS(a) ((a) > 0 ? (a) : -(a))
 
 template <typename T, typename Impl>
 class Interface {
