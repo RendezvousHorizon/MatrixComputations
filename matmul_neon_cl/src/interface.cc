@@ -17,6 +17,7 @@ static void rand_init(T *a, int n) {
     for (int i = 0; i < n; i++)
         a[i] = static_cast<T>(rand() / RAND_MAX - 0.5);
 }
+
 template <typename T, typename Impl>
 void Interface<T, Impl>::init() {
     _a = new T[_m * _k];
@@ -24,7 +25,6 @@ void Interface<T, Impl>::init() {
     _c = new T[_m * _n];
     rand_init<T>(_a, _m * _k);
     rand_init<T>(_b, _k * _n);
-    validate_impl();
 }
 
 template <typename T, typename Impl>
