@@ -74,9 +74,9 @@ void CLInterface::init() {
 }
 
 void CLInterface::naive_matmul(float *a, float *b, float *c) {
-    for (int i = 0; i < _m; i++)
-        for (int j = 0; j < _n; j++)
-            for (int p = 0; p < _k; p++)
+    for (int p = 0; p < _k; p++)
+        for (int i = 0; i < _m; i++)
+            for (int j = 0; j < _n; j++)
                 c[i * _n + j] += a[i + p * _m] * b[p * _n + j];
 }
 
@@ -100,7 +100,8 @@ void CLInterface::run_once() {
     cl::CommandQueue queue(_context, _device, CL_QUEUE_PROFILING_ENABLE);
 
     #if defined(CL_FP32)
-        queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(_m, _n));
+        queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(_m, _n), cl::NDRange(_m / 128, _n / 128));
+
     #elif defined(CL_ROW_FP32)
         queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(_m));
     #elif defined(CL_LMEM_FP32)
